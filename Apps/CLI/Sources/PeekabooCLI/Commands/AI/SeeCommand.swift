@@ -113,6 +113,9 @@ struct SeeCommand: ApplicationResolvable, ErrorHandlingCommand, RuntimeOptionsCo
 
     @Flag(help: "Skip web-content focus fallback when no text fields are detected")
     var noWebFocus = false
+
+    @Flag(name: .long, help: "Output the full UI tree (raw snapshot.json) to stdout")
+    var fullUiTree = false
     @RuntimeStorage private var runtime: CommandRuntime?
     var runtimeOptions = CommandRuntimeOptions()
 
@@ -277,7 +280,9 @@ struct SeeCommand: ApplicationResolvable, ErrorHandlingCommand, RuntimeOptionsCo
     }
 
     private func renderResults(context: SeeCommandRenderContext) async {
-        if self.jsonOutput {
+        if self.fullUiTree {
+            self.outputFullUITree(context: context)
+        } else if self.jsonOutput {
             await self.outputJSONResults(context: context)
         } else {
             await self.outputTextResults(context: context)
@@ -533,6 +538,29 @@ extension SeeCommand {
     }
 
     // MARK: - Output Methods
+
+    private func outputFullUITree(context: SeeCommandRenderContext) {
+        let snapshotJsonPath = self.services.snapshots.getSnapshotStoragePath()
+            + "/\(context.snapshotId)/snapshot.json"
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: snapshotJsonPath))
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print(jsonString)
+            } else {
+                outputError(
+                    message: "Failed to decode snapshot.json",
+                    code: .FILE_IO_ERROR,
+                    logger: self.outputLogger
+                )
+            }
+        } catch {
+            outputError(
+                message: "Failed to read snapshot.json at \(snapshotJsonPath): \(error.localizedDescription)",
+                code: .FILE_IO_ERROR,
+                logger: self.outputLogger
+            )
+        }
+    }
 
     private func outputJSONResults(context: SeeCommandRenderContext) async {
         let uiElements: [UIElementSummary] = context.elements.all.map { element in
@@ -827,6 +855,7 @@ extension SeeCommand: CommanderBindableCommand {
         self.analyze = values.singleOption("analyze")
         self.noWebFocus = values.flag("noWebFocus")
         self.menubar = values.flag("menubar")
+        self.fullUiTree = values.flag("fullUiTree")
     }
 }
 

@@ -72,6 +72,11 @@ extension SeeCommand: CommanderSignatureProviding {
                     help: "Skip web-content focus fallback when no text fields are detected",
                     long: "no-web-focus"
                 ),
+                .commandFlag(
+                    "fullUiTree",
+                    help: "Output the full UI tree (raw snapshot.json) to stdout",
+                    long: "full-ui-tree"
+                ),
             ]
         )
     }

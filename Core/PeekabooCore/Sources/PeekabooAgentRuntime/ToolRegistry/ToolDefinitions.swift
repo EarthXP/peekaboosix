@@ -48,6 +48,11 @@ public enum VisionToolDefinitions {
                 type: .boolean,
                 description: "Output in JSON format",
                 required: false),
+            ParameterDefinition(
+                name: "fullUiTree",
+                type: .boolean,
+                description: "Output the full UI tree (raw snapshot.json) to stdout",
+                required: false),
         ],
         examples: [],
         agentGuidance: "")
