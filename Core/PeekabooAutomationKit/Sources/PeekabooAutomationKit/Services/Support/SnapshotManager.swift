@@ -50,19 +50,29 @@ public final class SnapshotManager: SnapshotManagerProtocol {
         }
         snapshotData.lastUpdateTime = Date()
 
+        // Pre-compute parent→children map for hierarchy
+        var childrenMap: [String: [String]] = [:]
+        for element in result.elements.all {
+            if let parentId = element.parentId {
+                childrenMap[parentId, default: []].append(element.id)
+            }
+        }
+
         // Convert detected elements to UI map
         var uiMap: [String: UIElement] = [:]
         for element in result.elements.all {
             let uiElement = UIElement(
                 id: element.id,
                 elementId: "element_\(uiMap.count)",
-                role: self.convertElementTypeToRole(element.type),
+                role: element.attributes["role"] ?? self.convertElementTypeToRole(element.type),
                 title: element.label,
                 label: element.label,
                 value: element.value,
                 identifier: element.attributes["identifier"],
                 frame: element.bounds,
                 isActionable: self.isActionableType(element.type),
+                parentId: element.parentId,
+                children: childrenMap[element.id] ?? [],
                 keyboardShortcut: element.attributes["keyboardShortcut"])
             uiMap[element.id] = uiElement
         }

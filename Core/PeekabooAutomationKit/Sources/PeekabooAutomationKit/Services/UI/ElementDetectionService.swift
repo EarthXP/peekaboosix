@@ -593,6 +593,7 @@ extension ElementDetectionService {
             self.processElement(
                 window,
                 depth: 0,
+                parentId: nil,
                 deadline: deadline,
                 detectedElements: &detectedElements,
                 elementIdMap: &elementIdMap,
@@ -601,6 +602,7 @@ extension ElementDetectionService {
             self.processElement(
                 appElement,
                 depth: 0,
+                parentId: nil,
                 deadline: deadline,
                 detectedElements: &detectedElements,
                 elementIdMap: &elementIdMap,
@@ -610,6 +612,7 @@ extension ElementDetectionService {
                 self.processElement(
                     focusedElement,
                     depth: 0,
+                    parentId: nil,
                     deadline: deadline,
                     detectedElements: &detectedElements,
                     elementIdMap: &elementIdMap,
@@ -641,6 +644,7 @@ extension ElementDetectionService {
     private func processElement(
         _ element: Element,
         depth: Int,
+        parentId: String?,
         deadline: Date,
         detectedElements: inout [DetectedElement],
         elementIdMap: inout [String: DetectedElement],
@@ -682,13 +686,15 @@ extension ElementDetectionService {
             bounds: descriptor.frame,
             isEnabled: descriptor.isEnabled,
             isSelected: nil,
-            attributes: attributes)
+            attributes: attributes,
+            parentId: parentId)
 
         detectedElements.append(detectedElement)
         elementIdMap[elementId] = detectedElement
 
         self.processChildren(
             of: element,
+            parentId: elementId,
             depth: depth + 1,
             deadline: deadline,
             detectedElements: &detectedElements,
@@ -716,6 +722,7 @@ extension ElementDetectionService {
 
     private func processChildren(
         of element: Element,
+        parentId: String?,
         depth: Int,
         deadline: Date,
         detectedElements: inout [DetectedElement],
@@ -730,6 +737,7 @@ extension ElementDetectionService {
             self.processElement(
                 child,
                 depth: depth,
+                parentId: parentId,
                 deadline: deadline,
                 detectedElements: &detectedElements,
                 elementIdMap: &elementIdMap,

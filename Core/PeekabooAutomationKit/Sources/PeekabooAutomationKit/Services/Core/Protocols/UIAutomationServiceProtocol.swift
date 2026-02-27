@@ -272,6 +272,9 @@ public struct DetectedElement: Sendable, Codable {
     /// Additional attributes
     public let attributes: [String: String]
 
+    /// Parent element ID (nil for root elements)
+    public let parentId: String?
+
     public init(
         id: String,
         type: ElementType,
@@ -280,7 +283,8 @@ public struct DetectedElement: Sendable, Codable {
         bounds: CGRect,
         isEnabled: Bool = true,
         isSelected: Bool? = nil,
-        attributes: [String: String] = [:])
+        attributes: [String: String] = [:],
+        parentId: String? = nil)
     {
         self.id = id
         self.type = type
@@ -290,6 +294,7 @@ public struct DetectedElement: Sendable, Codable {
         self.isEnabled = isEnabled
         self.isSelected = isSelected
         self.attributes = attributes
+        self.parentId = parentId
     }
 }
 

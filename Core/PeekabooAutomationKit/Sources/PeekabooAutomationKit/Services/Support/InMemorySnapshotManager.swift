@@ -296,19 +296,29 @@ public final class InMemorySnapshotManager: SnapshotManagerProtocol {
             self.applyLegacyWarnings(result.metadata.warnings, to: &snapshotData)
         }
 
+        // Pre-compute parent→children map for hierarchy
+        var childrenMap: [String: [String]] = [:]
+        for element in result.elements.all {
+            if let parentId = element.parentId {
+                childrenMap[parentId, default: []].append(element.id)
+            }
+        }
+
         var uiMap: [String: UIElement] = [:]
         uiMap.reserveCapacity(result.elements.all.count)
         for element in result.elements.all {
             let uiElement = UIElement(
                 id: element.id,
                 elementId: "element_\(uiMap.count)",
-                role: self.convertElementTypeToRole(element.type),
+                role: element.attributes["role"] ?? self.convertElementTypeToRole(element.type),
                 title: element.label,
                 label: element.label,
                 value: element.value,
                 identifier: element.attributes["identifier"],
                 frame: element.bounds,
                 isActionable: element.isEnabled && self.isActionableType(element.type),
+                parentId: element.parentId,
+                children: childrenMap[element.id] ?? [],
                 keyboardShortcut: element.attributes["keyboardShortcut"])
             uiMap[element.id] = uiElement
         }
