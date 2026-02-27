@@ -539,13 +539,15 @@ extension SeeCommand {
 
     // MARK: - Output Methods
 
+    private static let labelTruncationLimit = 200
+
     private func outputFullUITree(context: SeeCommandRenderContext) {
         let snapshotJsonPath = self.services.snapshots.getSnapshotStoragePath()
             + "/\(context.snapshotId)/snapshot.json"
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: snapshotJsonPath))
-            let filtered = Self.stripElementIdFields(from: data)
-            if let jsonString = String(data: filtered, encoding: .utf8) {
+            let optimized = Self.optimizeForAgent(from: data)
+            if let jsonString = String(data: optimized, encoding: .utf8) {
                 print(jsonString)
             } else {
                 outputError(
@@ -563,20 +565,74 @@ extension SeeCommand {
         }
     }
 
-    /// Remove the unused `elementId` field from each element in uiMap to avoid agent confusion.
-    private static func stripElementIdFields(from data: Data) -> Data {
+    /// Optimize snapshot JSON for agent/LLM consumption:
+    /// - Remove unused `elementId` field
+    /// - Remove zero-size invisible elements (e.g. closed menu items)
+    /// - Truncate long label/value strings to save tokens
+    /// - Drop `title` when identical to `label`
+    /// - Convert frame from [[x,y],[w,h]] to {x,y,w,h}
+    private static func optimizeForAgent(from data: Data) -> Data {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var uiMap = json["uiMap"] as? [String: Any]
+              let uiMap = json["uiMap"] as? [String: Any]
         else {
             return data
         }
+
+        var optimized: [String: Any] = [:]
         for (key, value) in uiMap {
-            if var element = value as? [String: Any] {
-                element.removeValue(forKey: "elementId")
-                uiMap[key] = element
+            guard var element = value as? [String: Any] else { continue }
+
+            // Remove zero-size invisible elements (e.g. AXMenuItem when menu is closed)
+            if let frame = element["frame"] as? [[Any]], frame.count == 2,
+               let size = frame[1] as? [NSNumber], size.count == 2,
+               size[0].doubleValue == 0, size[1].doubleValue == 0
+            {
+                continue
             }
+
+            // Remove unused elementId
+            element.removeValue(forKey: "elementId")
+
+            // Convert frame [[x,y],[w,h]] → {"x":x,"y":y,"w":w,"h":h}
+            if let frame = element["frame"] as? [[NSNumber]], frame.count == 2,
+               frame[0].count == 2, frame[1].count == 2
+            {
+                element["frame"] = [
+                    "x": frame[0][0], "y": frame[0][1],
+                    "w": frame[1][0], "h": frame[1][1],
+                ]
+            }
+
+            // Drop title when identical to label
+            if let label = element["label"] as? String,
+               let title = element["title"] as? String,
+               label == title
+            {
+                element.removeValue(forKey: "title")
+            }
+
+            // Truncate long label/value
+            Self.truncateStringField(&element, key: "label")
+            Self.truncateStringField(&element, key: "value")
+
+            optimized[key] = element
         }
-        json["uiMap"] = uiMap
+
+        // Update children references to only include surviving elements
+        let survivingIds = Set(optimized.keys)
+        for (key, value) in optimized {
+            guard var element = value as? [String: Any] else { continue }
+            if let children = element["children"] as? [String] {
+                let filtered = children.filter { survivingIds.contains($0) }
+                element["children"] = filtered
+            }
+            if let parentId = element["parentId"] as? String, !survivingIds.contains(parentId) {
+                element.removeValue(forKey: "parentId")
+            }
+            optimized[key] = element
+        }
+
+        json["uiMap"] = optimized
         guard let result = try? JSONSerialization.data(
             withJSONObject: json,
             options: [.prettyPrinted, .sortedKeys]
@@ -584,6 +640,12 @@ extension SeeCommand {
             return data
         }
         return result
+    }
+
+    private static func truncateStringField(_ element: inout [String: Any], key: String) {
+        guard let text = element[key] as? String, text.count > Self.labelTruncationLimit else { return }
+        let truncated = String(text.prefix(Self.labelTruncationLimit))
+        element[key] = truncated + " [truncated, \(text.count) chars total]"
     }
 
     private func outputJSONResults(context: SeeCommandRenderContext) async {
