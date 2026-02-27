@@ -544,7 +544,8 @@ extension SeeCommand {
             + "/\(context.snapshotId)/snapshot.json"
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: snapshotJsonPath))
-            if let jsonString = String(data: data, encoding: .utf8) {
+            let filtered = Self.stripElementIdFields(from: data)
+            if let jsonString = String(data: filtered, encoding: .utf8) {
                 print(jsonString)
             } else {
                 outputError(
@@ -560,6 +561,29 @@ extension SeeCommand {
                 logger: self.outputLogger
             )
         }
+    }
+
+    /// Remove the unused `elementId` field from each element in uiMap to avoid agent confusion.
+    private static func stripElementIdFields(from data: Data) -> Data {
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var uiMap = json["uiMap"] as? [String: Any]
+        else {
+            return data
+        }
+        for (key, value) in uiMap {
+            if var element = value as? [String: Any] {
+                element.removeValue(forKey: "elementId")
+                uiMap[key] = element
+            }
+        }
+        json["uiMap"] = uiMap
+        guard let result = try? JSONSerialization.data(
+            withJSONObject: json,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else {
+            return data
+        }
+        return result
     }
 
     private func outputJSONResults(context: SeeCommandRenderContext) async {
