@@ -126,7 +126,13 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                     nil
                 }
 
-                try await self.focusApplicationIfNeeded(snapshotId: focusSnapshotId)
+                // Focus is best-effort for element clicks — AXPress can
+                // interact with system sheets (Print, Save As) without focus.
+                do {
+                    try await self.focusApplicationIfNeeded(snapshotId: focusSnapshotId, bestEffort: true)
+                } catch {
+                    // Continue; ClickService will try AXPress which doesn't need focus
+                }
 
                 // Use whichever element ID parameter was provided
                 let elementId = self.on ?? self.id
@@ -271,7 +277,7 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
         return "\(roleDescription): \(label)"
     }
 
-    private func focusApplicationIfNeeded(snapshotId: String?) async throws {
+    private func focusApplicationIfNeeded(snapshotId: String?, bestEffort: Bool = false) async throws {
         guard self.focusOptions.autoFocus else {
             return
         }
@@ -280,10 +286,16 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
             return
         }
 
+        let options: any FocusOptionsProtocol = if bestEffort {
+            QuickFocusOptions(base: self.focusOptions)
+        } else {
+            self.focusOptions
+        }
+
         try await ensureFocused(
             snapshotId: snapshotId,
             target: self.target,
-            options: self.focusOptions,
+            options: options,
             services: self.services
         )
 
@@ -292,6 +304,22 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
     }
 
     // Error handling is provided by ErrorHandlingCommand protocol
+}
+
+/// Quick-fail focus options for element clicks where AXPress can work without focus.
+/// Uses 2s timeout and 1 attempt to avoid blocking on system sheets.
+private struct QuickFocusOptions: FocusOptionsProtocol {
+    let autoFocus: Bool = true
+    let focusTimeout: TimeInterval?
+    let focusRetryCount: Int? = 1
+    let spaceSwitch: Bool
+    let bringToCurrentSpace: Bool
+
+    init(base: FocusCommandOptions) {
+        self.focusTimeout = min(base.focusTimeout ?? 5.0, 2.0)
+        self.spaceSwitch = base.spaceSwitch
+        self.bringToCurrentSpace = base.bringToCurrentSpace
+    }
 }
 
 @MainActor

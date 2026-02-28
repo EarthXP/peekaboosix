@@ -125,8 +125,18 @@ public final class SnapshotManager: SnapshotManagerProtocol {
 
         for (_, uiElement) in snapshotData.uiMap {
             var attributes: [String: String] = [:]
+            attributes["role"] = uiElement.role
             if let identifier = uiElement.identifier {
                 attributes["identifier"] = identifier
+            }
+            if let title = uiElement.title {
+                attributes["title"] = title
+            }
+            if let description = uiElement.description {
+                attributes["description"] = description
+            }
+            if let roleDescription = uiElement.roleDescription {
+                attributes["roleDescription"] = roleDescription
             }
             if let shortcut = uiElement.keyboardShortcut {
                 attributes["keyboardShortcut"] = shortcut

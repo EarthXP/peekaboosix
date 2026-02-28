@@ -78,7 +78,18 @@ public final class ClickService {
            let detectionResult = try? await snapshotManager.getDetectionResult(snapshotId: snapshotId),
            let element = detectionResult.elements.findById(id)
         {
-            // Click at element center
+            // For single clicks on actionable elements, try AXPress first.
+            // AXPress works through the Accessibility API without requiring window focus,
+            // which is essential for system modal sheets (Print, Save As) that don't
+            // respond to synthetic CGEvent mouse clicks.
+            if clickType == .single,
+               try await self.tryAXPress(element: element, snapshotId: snapshotId)
+            {
+                self.logger.debug("Clicked element \(id) via AXPress")
+                return
+            }
+
+            // Fall back to coordinate-based CGEvent click
             let center = CGPoint(x: element.bounds.midX, y: element.bounds.midY)
             let adjusted = try await self.resolveAdjustedPoint(center, snapshotId: snapshotId)
             try await self.performClick(at: adjusted, clickType: clickType)
@@ -288,6 +299,147 @@ public final class ClickService {
             }
         }
 
+        return nil
+    }
+
+    // MARK: - AXPress Support
+
+    /// Attempt to click an element using the AXPress accessibility action.
+    /// Returns `true` if successful, `false` if AXPress is not applicable or fails.
+    private func tryAXPress(element: DetectedElement, snapshotId: String) async throws -> Bool {
+        // Only attempt AXPress for roles that support it
+        let role = element.attributes["role"] ?? ""
+        let pressableRoles: Set<String> = [
+            "AXButton", "AXPopUpButton", "AXCheckBox", "AXRadioButton",
+            "AXMenuItem", "AXLink", "AXTab", "AXDisclosureTriangle",
+        ]
+        guard pressableRoles.contains(role) else {
+            self.logger.debug("AXPress: role '\(role)' not pressable, skipping")
+            return false
+        }
+
+        // Resolve the live AX element from the snapshot data
+        guard let liveElement = try await self.resolveLiveElement(element, snapshotId: snapshotId) else {
+            self.logger.warning("AXPress: could not resolve live element for \(element.id) (role=\(role)), falling back to CGEvent")
+            return false
+        }
+
+        // Try AXPress directly — system sheets (Print, Save As) may not enumerate
+        // actions via supportedActions() but still respond to performAction().
+        do {
+            try liveElement.performAction("AXPress")
+            self.logger.info("AXPress: successfully pressed \(element.id)")
+            return true
+        } catch {
+            self.logger.debug("AXPress: performAction failed for \(element.id): \(error), falling back to CGEvent")
+            return false
+        }
+    }
+
+    /// Resolve a snapshot DetectedElement to a live AXorcist Element by searching the AX tree.
+    /// Uses the snapshot's applicationProcessId and optional windowID to locate the window,
+    /// then searches for the element by role + identifier (or bounds as fallback).
+    private func resolveLiveElement(_ detected: DetectedElement, snapshotId: String) async throws -> Element? {
+        guard let snapshot = try? await self.snapshotManager.getUIAutomationSnapshot(snapshotId: snapshotId),
+              let appPID = snapshot.applicationProcessId
+        else {
+            return nil
+        }
+
+        guard let app = NSRunningApplication(processIdentifier: appPID) else { return nil }
+
+        let targetRole = detected.attributes["role"]
+        let targetIdentifier = detected.attributes["identifier"]
+
+        // If windowID is available, search that specific window first
+        if let windowID = snapshot.windowID {
+            let windowIdentity = WindowIdentityService()
+            if let handle = windowIdentity.findWindow(byID: CGWindowID(windowID), in: app)
+                ?? windowIdentity.findWindow(byID: CGWindowID(windowID))
+            {
+                if let found = self.searchLiveElement(
+                    in: handle.element, role: targetRole, identifier: targetIdentifier,
+                    bounds: detected.bounds, maxDepth: 15)
+                {
+                    return found
+                }
+            }
+        }
+
+        // Fallback: search all windows of the app (handles missing windowID in snapshot)
+        let appElement = AXApp(app).element
+        guard let windows = appElement.windows() else { return nil }
+
+        for window in windows {
+            // Search the window itself
+            if let found = self.searchLiveElement(
+                in: window, role: targetRole, identifier: targetIdentifier,
+                bounds: detected.bounds, maxDepth: 15)
+            {
+                return found
+            }
+            // Also search sheet/dialog children (system sheets have their own window layer)
+            guard let children = window.children() else { continue }
+            for child in children {
+                let childRole = child.role() ?? ""
+                guard childRole == "AXSheet" || childRole == "AXDialog" else { continue }
+                if let found = self.searchLiveElement(
+                    in: child, role: targetRole, identifier: targetIdentifier,
+                    bounds: detected.bounds, maxDepth: 15)
+                {
+                    return found
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Search the live AX tree for an element matching the snapshot's role, identifier, and bounds.
+    private func searchLiveElement(
+        in element: Element,
+        role: String?,
+        identifier: String?,
+        bounds: CGRect,
+        maxDepth: Int) -> Element?
+    {
+        guard maxDepth > 0 else { return nil }
+
+        // Match by role + identifier + bounds proximity
+        if let role, element.role() == role {
+            let identifierMatches = identifier.flatMap { id in
+                !id.isEmpty ? element.identifier().map { $0 == id } : nil
+            } ?? false
+
+            let boundsMatch: Bool
+            if let frame = element.frame() {
+                boundsMatch = abs(frame.origin.x - bounds.origin.x) < 5
+                    && abs(frame.origin.y - bounds.origin.y) < 5
+                    && abs(frame.width - bounds.width) < 5
+                    && abs(frame.height - bounds.height) < 5
+            } else {
+                boundsMatch = false
+            }
+
+            // Best match: role + identifier + bounds all match
+            if identifierMatches, boundsMatch {
+                return element
+            }
+            // Good match: role + bounds (no identifier to check)
+            if (identifier == nil || identifier?.isEmpty == true), boundsMatch {
+                return element
+            }
+        }
+
+        guard let children = element.children() else { return nil }
+        for child in children {
+            if let found = self.searchLiveElement(
+                in: child, role: role, identifier: identifier,
+                bounds: bounds, maxDepth: maxDepth - 1)
+            {
+                return found
+            }
+        }
         return nil
     }
 
