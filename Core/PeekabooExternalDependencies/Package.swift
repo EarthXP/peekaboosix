@@ -21,7 +21,7 @@ let package = Package(
     ],
     dependencies: [
         // External dependencies centralized here
-        .package(path: "../../AXorcist"),
+        .package(url: "https://github.com/EarthXP/AXorcist.git", from: "0.1.1"),
         // 1.1.x is Swift 6.2-ready (we're on Xcode 26.1.1).
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.1.0"),
         .package(url: "https://github.com/apple/swift-algorithms", from: "1.2.1"),

@@ -26,7 +26,7 @@ let package = Package(
     dependencies: [
         .package(path: "../PeekabooFoundation"),
         .package(path: "../PeekabooProtocols"),
-        .package(path: "../../AXorcist"),
+        .package(url: "https://github.com/EarthXP/AXorcist.git", from: "0.1.1"),
         .package(url: "https://github.com/apple/swift-algorithms", from: "1.2.1"),
     ],
     targets: [

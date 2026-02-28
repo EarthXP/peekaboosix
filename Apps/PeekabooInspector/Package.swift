@@ -17,7 +17,7 @@ let package = Package(
             targets: ["PeekabooInspector"]),
     ],
     dependencies: [
-        .package(path: "../../AXorcist"),
+        .package(url: "https://github.com/EarthXP/AXorcist.git", from: "0.1.1"),
         .package(path: "../../Core/PeekabooCore"),
         .package(path: "../../Core/PeekabooUICore"),
     ],
