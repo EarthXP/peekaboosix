@@ -226,3 +226,10 @@ func withTimeout<T: Sendable>(
 {
     try await AXTimeoutHelper.withTimeout(seconds: seconds, operation: operation)
 }
+
+func withEscapableTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T) async throws -> T
+{
+    try await AXTimeoutHelper.withEscapableTimeout(seconds: seconds, operation: operation)
+}

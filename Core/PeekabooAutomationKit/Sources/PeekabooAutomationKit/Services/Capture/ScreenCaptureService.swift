@@ -538,7 +538,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
         config.captureResolution = .best
         config.showsCursor = false
 
-        return try await withTimeout(seconds: 3.0) {
+        return try await withEscapableTimeout(seconds: 3.0) {
             try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config)
@@ -556,7 +556,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
         // Configure for best quality
         config.showsCursor = false
 
-        return try await withTimeout(seconds: 3.0) {
+        return try await withEscapableTimeout(seconds: 3.0) {
             try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config)
@@ -576,7 +576,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
 
         // Start capture with a bounded timeout so ScreenCaptureKit stalls can fall back.
         do {
-            try await withTimeout(seconds: 3.0) {
+            try await withEscapableTimeout(seconds: 3.0) {
                 try await stream.startCapture()
             }
         } catch {
@@ -624,7 +624,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
             "Legacy area capture using ScreenCaptureKit screenshot manager",
             correlationId: correlationId)
 
-        let content = try await withTimeout(seconds: 5.0) {
+        let content = try await withEscapableTimeout(seconds: 5.0) {
             try await SCShareableContent.current
         }
         guard let display = content.displays.first(where: { $0.frame.contains(rect) }) else {
@@ -651,7 +651,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
         config.captureResolution = .best
         config.showsCursor = false
 
-        let image = try await withTimeout(seconds: 3.0) {
+        let image = try await withEscapableTimeout(seconds: 3.0) {
             try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config)
@@ -726,7 +726,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
             scale: CaptureScalePreference) async throws -> CaptureResult
         {
             self.logger.debug("Fetching shareable content", correlationId: correlationId)
-            let content = try await withTimeout(seconds: 5.0) {
+            let content = try await withEscapableTimeout(seconds: 5.0) {
                 try await SCShareableContent.current
             }
             let displays = content.displays
@@ -790,7 +790,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
             visualizerMode: CaptureVisualizerMode,
             scale: CaptureScalePreference) async throws -> CaptureResult
         {
-            let content = try await withTimeout(seconds: 5.0) {
+            let content = try await withEscapableTimeout(seconds: 5.0) {
                 try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             }
 
@@ -904,7 +904,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
             visualizerMode: CaptureVisualizerMode,
             scale: CaptureScalePreference) async throws -> CaptureResult
         {
-            let content = try await withTimeout(seconds: 5.0) {
+            let content = try await withEscapableTimeout(seconds: 5.0) {
                 try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             }
 
@@ -1111,7 +1111,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
             config.captureResolution = .best
             config.showsCursor = false
 
-            return try await withTimeout(seconds: 3.0) {
+            return try await withEscapableTimeout(seconds: 3.0) {
                 try await SCScreenshotManager.captureImage(
                     contentFilter: filter,
                     configuration: config)
@@ -1126,7 +1126,7 @@ public final class ScreenCaptureService: ScreenCaptureServiceProtocol {
             let stream = SCStream(filter: filter, configuration: configuration, delegate: output)
             try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: nil)
             do {
-                try await withTimeout(seconds: 3.0) {
+                try await withEscapableTimeout(seconds: 3.0) {
                     try await stream.startCapture()
                 }
             } catch {
