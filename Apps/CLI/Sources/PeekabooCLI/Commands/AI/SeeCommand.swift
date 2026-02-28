@@ -618,9 +618,10 @@ extension SeeCommand {
                 element.removeValue(forKey: "title")
             }
 
-            // Truncate long label/value
+            // Truncate long label/value/description
             Self.truncateStringField(&element, key: "label")
             Self.truncateStringField(&element, key: "value")
+            Self.truncateStringField(&element, key: "description")
 
             optimized[key] = element
         }
@@ -726,6 +727,24 @@ extension SeeCommand {
         }
     }
 
+    /// Labels that are generic role descriptions rather than meaningful content.
+    /// When these appear as `label`, we prefer `description` instead.
+    private static let genericLabels: Set<String> = [
+        "按钮", "button", "Button",
+        "单元格", "cell", "Cell",
+        "表格行", "table row", "row",
+        "组", "group", "Group",
+        "图像", "image", "Image",
+        "Menu Item",
+        "外框行", "外框", "分离组", "滚动区", "滚动条",
+        "值指示器", "菜单按钮", "单选按钮", "单选按钮组",
+        "未知",
+    ]
+
+    private static func isGenericLabel(_ label: String) -> Bool {
+        return self.genericLabels.contains(label)
+    }
+
     /// Render an ASCII wireframe from optimized --full-ui-tree JSON data.
     static func renderWireframe(from data: Data, canvasWidth: Int = 120) -> String {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -794,7 +813,7 @@ extension SeeCommand {
         struct RenderElement {
             let id: String
             let role: String
-            let label: String
+            let label: String // best display text (label → description → value fallback)
             let frame: (x: Double, y: Double, w: Double, h: Double) // clipped
             let isActionable: Bool
             let area: Double
@@ -806,20 +825,29 @@ extension SeeCommand {
             let role = elem["role"] as? String ?? ""
             let clipped: (x: Double, y: Double, w: Double, h: Double)?
             if role == "AXMenu" || role == "AXMenuItem" {
-                // Menu items clip to the menu bar area
                 clipped = clipFrame(rawFrame, minX: viewMinX, minY: 0, maxX: viewMaxX, maxY: menuBarHeight)
             } else if role == "AXWindow" {
-                // Window uses its own frame directly
                 clipped = rawFrame
             } else {
-                // All other elements clip to window bounds
                 clipped = clipFrame(rawFrame, minX: winX, minY: winY, maxX: winX + winW, maxY: winY + winH)
             }
             guard let finalFrame = clipped else { continue }
-            let label = elem["label"] as? String ?? ""
+
+            // Smart label: prefer description when label is generic
+            let rawLabel = elem["label"] as? String ?? ""
+            let description = elem["description"] as? String
+            let displayLabel: String
+            if Self.isGenericLabel(rawLabel), let desc = description, !desc.isEmpty {
+                displayLabel = desc
+            } else if rawLabel.isEmpty, let desc = description, !desc.isEmpty {
+                displayLabel = desc
+            } else {
+                displayLabel = rawLabel
+            }
+
             let actionable = elem["isActionable"] as? Bool ?? false
             elements.append(RenderElement(
-                id: eid, role: role, label: label,
+                id: eid, role: role, label: displayLabel,
                 frame: finalFrame, isActionable: actionable,
                 area: finalFrame.w * finalFrame.h
             ))
