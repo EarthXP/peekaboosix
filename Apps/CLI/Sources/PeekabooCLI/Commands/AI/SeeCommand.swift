@@ -575,8 +575,9 @@ extension SeeCommand {
     /// Optimize snapshot JSON for agent/LLM consumption:
     /// - Remove unused `elementId` field
     /// - Remove zero-size invisible elements (e.g. closed menu items)
-    /// - Truncate long label/value strings to save tokens
-    /// - Drop `title` when identical to `label`
+    /// - Resolve `displayText` from label/description/value/help fallback chain
+    /// - Remove redundant text fields (label, description, value, roleDescription) absorbed by `displayText`
+    /// - Keep `help` only when it carries unique info beyond `displayText`
     /// - Convert frame from [[x,y],[w,h]] to {x,y,w,h}
     private static func optimizeForAgent(from data: Data) -> Data {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -597,8 +598,17 @@ extension SeeCommand {
                 continue
             }
 
-            // Remove unused elementId
+            // Remove unused/redundant fields
             element.removeValue(forKey: "elementId")
+            element.removeValue(forKey: "title")
+
+            // Omit isActionable when false (default); omit empty children array
+            if let actionable = element["isActionable"] as? Bool, !actionable {
+                element.removeValue(forKey: "isActionable")
+            }
+            if let children = element["children"] as? [Any], children.isEmpty {
+                element.removeValue(forKey: "children")
+            }
 
             // Convert frame [[x,y],[w,h]] → {"x":x,"y":y,"w":w,"h":h}
             if let frame = element["frame"] as? [[NSNumber]], frame.count == 2,
@@ -610,18 +620,8 @@ extension SeeCommand {
                 ]
             }
 
-            // Drop title when identical to label
-            if let label = element["label"] as? String,
-               let title = element["title"] as? String,
-               label == title
-            {
-                element.removeValue(forKey: "title")
-            }
-
-            // Truncate long label/value/description
-            Self.truncateStringField(&element, key: "label")
-            Self.truncateStringField(&element, key: "value")
-            Self.truncateStringField(&element, key: "description")
+            // Resolve displayText from fallback chain, then remove redundant fields
+            Self.resolveDisplayText(&element)
 
             optimized[key] = element
         }
@@ -650,10 +650,55 @@ extension SeeCommand {
         return result
     }
 
-    private static func truncateStringField(_ element: inout [String: Any], key: String) {
-        guard let text = element[key] as? String, text.count > Self.labelTruncationLimit else { return }
-        let truncated = String(text.prefix(Self.labelTruncationLimit))
-        element[key] = truncated + " [truncated, \(text.count) chars total]"
+    /// Resolve a single `displayText` from the label/description/value/help fallback chain,
+    /// then remove all redundant text fields. After this call the element has at most
+    /// `displayText` (the best human-readable name) and `help` (if it carries extra info).
+    private static func resolveDisplayText(_ element: inout [String: Any]) {
+        let label = element["label"] as? String ?? ""
+        let description = element["description"] as? String ?? ""
+        let value = element["value"] as? String ?? ""
+        let help = element["help"] as? String ?? ""
+
+        let labelIsGeneric = Self.isGenericLabel(label)
+
+        // Fallback chain: semantic label → description → value → help
+        var displayText: String?
+        if !label.isEmpty, !labelIsGeneric {
+            displayText = label
+        } else if !description.isEmpty {
+            displayText = description
+        } else if !value.isEmpty {
+            displayText = value
+        } else if !help.isEmpty {
+            displayText = help
+        }
+
+        // Truncate displayText if needed
+        if let dt = displayText, dt.count > Self.labelTruncationLimit {
+            displayText = String(dt.prefix(Self.labelTruncationLimit)) + " [truncated, \(dt.count) chars total]"
+        }
+
+        // Remove all original text fields — displayText replaces them
+        element.removeValue(forKey: "label")
+        element.removeValue(forKey: "description")
+        element.removeValue(forKey: "value")
+        element.removeValue(forKey: "roleDescription")
+
+        // Set displayText (nil means the element has no human-readable name — structural container)
+        if let dt = displayText {
+            element["displayText"] = dt
+        }
+
+        // Keep help only if it carries unique info beyond displayText
+        if help.isEmpty || help == displayText {
+            element.removeValue(forKey: "help")
+        } else {
+            // Truncate help if needed
+            if help.count > Self.labelTruncationLimit {
+                element["help"] = String(help.prefix(Self.labelTruncationLimit))
+                    + " [truncated, \(help.count) chars total]"
+            }
+        }
     }
 
     // MARK: - Wireframe Renderer
@@ -833,17 +878,8 @@ extension SeeCommand {
             }
             guard let finalFrame = clipped else { continue }
 
-            // Smart label: prefer description when label is generic
-            let rawLabel = elem["label"] as? String ?? ""
-            let description = elem["description"] as? String
-            let displayLabel: String
-            if Self.isGenericLabel(rawLabel), let desc = description, !desc.isEmpty {
-                displayLabel = desc
-            } else if rawLabel.isEmpty, let desc = description, !desc.isEmpty {
-                displayLabel = desc
-            } else {
-                displayLabel = rawLabel
-            }
+            // displayText is pre-computed by optimizeForAgent
+            let displayLabel = elem["displayText"] as? String ?? ""
 
             let actionable = elem["isActionable"] as? Bool ?? false
             elements.append(RenderElement(
