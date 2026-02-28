@@ -116,6 +116,9 @@ struct SeeCommand: ApplicationResolvable, ErrorHandlingCommand, RuntimeOptionsCo
 
     @Flag(name: .long, help: "Output the full UI tree (raw snapshot.json) to stdout")
     var fullUiTree = false
+
+    @Flag(name: .long, help: "Append an ASCII wireframe with element IDs (implies --full-ui-tree)")
+    var wireframe = false
     @RuntimeStorage private var runtime: CommandRuntime?
     var runtimeOptions = CommandRuntimeOptions()
 
@@ -280,8 +283,8 @@ struct SeeCommand: ApplicationResolvable, ErrorHandlingCommand, RuntimeOptionsCo
     }
 
     private func renderResults(context: SeeCommandRenderContext) async {
-        if self.fullUiTree {
-            self.outputFullUITree(context: context)
+        if self.fullUiTree || self.wireframe {
+            self.outputFullUITree(context: context, includeWireframe: self.wireframe)
         } else if self.jsonOutput {
             await self.outputJSONResults(context: context)
         } else {
@@ -541,7 +544,7 @@ extension SeeCommand {
 
     private static let labelTruncationLimit = 200
 
-    private func outputFullUITree(context: SeeCommandRenderContext) {
+    private func outputFullUITree(context: SeeCommandRenderContext, includeWireframe: Bool = false) {
         let snapshotJsonPath = self.services.snapshots.getSnapshotStoragePath()
             + "/\(context.snapshotId)/snapshot.json"
         do {
@@ -549,6 +552,10 @@ extension SeeCommand {
             let optimized = Self.optimizeForAgent(from: data)
             if let jsonString = String(data: optimized, encoding: .utf8) {
                 print(jsonString)
+                if includeWireframe {
+                    print("\n---WIREFRAME---")
+                    print(Self.renderWireframe(from: optimized))
+                }
             } else {
                 outputError(
                     message: "Failed to decode snapshot.json",
@@ -646,6 +653,299 @@ extension SeeCommand {
         guard let text = element[key] as? String, text.count > Self.labelTruncationLimit else { return }
         let truncated = String(text.prefix(Self.labelTruncationLimit))
         element[key] = truncated + " [truncated, \(text.count) chars total]"
+    }
+
+    // MARK: - Wireframe Renderer
+
+    /// A z-ordered character canvas for ASCII wireframe rendering.
+    private struct WireframeCanvas {
+        let width: Int
+        let height: Int
+        private var cells: [(ch: Character, z: Int)]
+
+        init(width: Int, height: Int) {
+            self.width = width
+            self.height = height
+            self.cells = Array(repeating: (ch: " ", z: 0), count: width * height)
+        }
+
+        mutating func put(_ x: Int, _ y: Int, _ ch: Character, z: Int = 1) {
+            guard x >= 0, x < self.width, y >= 0, y < self.height else { return }
+            let idx = y * self.width + x
+            if self.cells[idx].z <= z {
+                self.cells[idx] = (ch, z)
+            }
+        }
+
+        mutating func putText(_ x: Int, _ y: Int, _ text: String, z: Int = 1) {
+            for (i, ch) in text.enumerated() {
+                self.put(x + i, y, ch, z: z)
+            }
+        }
+
+        mutating func drawBox(
+            _ cx1: Int, _ cy1: Int, _ cx2: Int, _ cy2: Int,
+            z: Int = 1, heavy: Bool = false
+        ) {
+            guard cx2 > cx1, cy2 > cy1 else { return }
+            let tl: Character = heavy ? "┏" : "┌"
+            let tr: Character = heavy ? "┓" : "┐"
+            let bl: Character = heavy ? "┗" : "└"
+            let br: Character = heavy ? "┛" : "┘"
+            let hl: Character = heavy ? "━" : "─"
+            let vl: Character = heavy ? "┃" : "│"
+
+            for x in (cx1 + 1) ..< cx2 {
+                self.put(x, cy1, hl, z: z)
+                self.put(x, cy2, hl, z: z)
+            }
+            for y in (cy1 + 1) ..< cy2 {
+                self.put(cx1, y, vl, z: z)
+                self.put(cx2, y, vl, z: z)
+            }
+            self.put(cx1, cy1, tl, z: z)
+            self.put(cx2, cy1, tr, z: z)
+            self.put(cx1, cy2, bl, z: z)
+            self.put(cx2, cy2, br, z: z)
+        }
+
+        func render() -> String {
+            var lines: [String] = []
+            for y in 0 ..< self.height {
+                var line = ""
+                for x in 0 ..< self.width {
+                    line.append(self.cells[y * self.width + x].ch)
+                }
+                // Trim trailing spaces
+                while line.hasSuffix(" ") { line.removeLast() }
+                lines.append(line)
+            }
+            // Trim trailing empty lines
+            while lines.last?.isEmpty == true { lines.removeLast() }
+            return lines.joined(separator: "\n")
+        }
+    }
+
+    /// Render an ASCII wireframe from optimized --full-ui-tree JSON data.
+    static func renderWireframe(from data: Data, canvasWidth: Int = 120) -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let uiMap = json["uiMap"] as? [String: [String: Any]]
+        else {
+            return "(wireframe: failed to parse JSON)"
+        }
+
+        // Determine viewport from windowBounds
+        let windowBounds = json["windowBounds"] as? [[NSNumber]] ?? [[0, 0], [1920, 1080]]
+        let winX = windowBounds[0][0].doubleValue
+        let winY = windowBounds[0][1].doubleValue
+        let winW = windowBounds[1][0].doubleValue
+        let winH = windowBounds[1][1].doubleValue
+
+        // Viewport: menu bar row (y=0..30) + window area
+        let viewMinX = winX
+        let viewMinY: Double = 0
+        let viewMaxX = winX + winW
+        let viewMaxY = winY + winH
+        let menuBarHeight: Double = 30
+
+        let viewW = viewMaxX - viewMinX
+        let viewH = viewMaxY - viewMinY
+        guard viewW > 0, viewH > 0 else {
+            return "(wireframe: invalid window bounds)"
+        }
+
+        // Scale to canvas; terminal chars ~2:1 aspect ratio
+        let sx = Double(canvasWidth) / viewW
+        let canvasHeight = max(20, Int(viewH * sx * 0.45))
+        let sy = Double(canvasHeight) / viewH
+
+        var canvas = WireframeCanvas(width: canvasWidth, height: canvasHeight)
+
+        // Coordinate mapping — clamps to canvas bounds
+        func toCanvas(_ px: Double, _ py: Double) -> (Int, Int) {
+            let cx = Int((px - viewMinX) * sx)
+            let cy = Int((py - viewMinY) * sy)
+            return (max(0, min(canvasWidth - 1, cx)), max(0, min(canvasHeight - 1, cy)))
+        }
+
+        // Parse element frame from optimized {x,y,w,h} format
+        func frame(_ element: [String: Any]) -> (x: Double, y: Double, w: Double, h: Double)? {
+            guard let f = element["frame"] as? [String: NSNumber] else { return nil }
+            guard let x = f["x"]?.doubleValue, let y = f["y"]?.doubleValue,
+                  let w = f["w"]?.doubleValue, let h = f["h"]?.doubleValue
+            else { return nil }
+            return (x, y, w, h)
+        }
+
+        /// Clip frame to a rectangular region; returns nil if fully outside.
+        func clipFrame(
+            _ f: (x: Double, y: Double, w: Double, h: Double),
+            minX: Double, minY: Double, maxX: Double, maxY: Double
+        ) -> (x: Double, y: Double, w: Double, h: Double)? {
+            let x1 = max(f.x, minX)
+            let y1 = max(f.y, minY)
+            let x2 = min(f.x + f.w, maxX)
+            let y2 = min(f.y + f.h, maxY)
+            guard x2 > x1, y2 > y1 else { return nil }
+            return (x1, y1, x2 - x1, y2 - y1)
+        }
+
+        // Collect elements, clip to appropriate region, sort by area descending
+        struct RenderElement {
+            let id: String
+            let role: String
+            let label: String
+            let frame: (x: Double, y: Double, w: Double, h: Double) // clipped
+            let isActionable: Bool
+            let area: Double
+        }
+
+        var elements: [RenderElement] = []
+        for (eid, elem) in uiMap {
+            guard let rawFrame = frame(elem) else { continue }
+            let role = elem["role"] as? String ?? ""
+            let clipped: (x: Double, y: Double, w: Double, h: Double)?
+            if role == "AXMenu" || role == "AXMenuItem" {
+                // Menu items clip to the menu bar area
+                clipped = clipFrame(rawFrame, minX: viewMinX, minY: 0, maxX: viewMaxX, maxY: menuBarHeight)
+            } else if role == "AXWindow" {
+                // Window uses its own frame directly
+                clipped = rawFrame
+            } else {
+                // All other elements clip to window bounds
+                clipped = clipFrame(rawFrame, minX: winX, minY: winY, maxX: winX + winW, maxY: winY + winH)
+            }
+            guard let finalFrame = clipped else { continue }
+            let label = elem["label"] as? String ?? ""
+            let actionable = elem["isActionable"] as? Bool ?? false
+            elements.append(RenderElement(
+                id: eid, role: role, label: label,
+                frame: finalFrame, isActionable: actionable,
+                area: finalFrame.w * finalFrame.h
+            ))
+        }
+        elements.sort { $0.area > $1.area }
+
+        // ---- Draw menu bar separator ----
+        let (_, menuBottom) = toCanvas(viewMinX, menuBarHeight)
+        for x in 0 ..< canvasWidth {
+            canvas.put(x, menuBottom, "─", z: 2)
+        }
+
+        // ---- Render each element by role ----
+        for elem in elements {
+            let f = elem.frame
+            let (cx1, cy1) = toCanvas(f.x, f.y)
+            let (cx2, cy2) = toCanvas(f.x + f.w, f.y + f.h)
+            guard cx2 > cx1 || cy2 > cy1 else { continue }
+
+            switch elem.role {
+            case "AXWindow":
+                canvas.drawBox(cx1, cy1, cx2, cy2, z: 10, heavy: true)
+                let titleLabel = " [\(elem.id)] \(elem.label) "
+                canvas.putText(cx1 + 1, cy1, String(titleLabel.prefix(cx2 - cx1 - 1)), z: 11)
+
+            case "AXToolbar":
+                if cy2 < canvasHeight {
+                    for x in (cx1 + 1) ..< cx2 {
+                        canvas.put(x, cy2, "─", z: 8)
+                    }
+                }
+                let tag = " [\(elem.id)] Toolbar"
+                canvas.putText(cx1 + 1, cy1 + 1, String(tag.prefix(cx2 - cx1 - 1)), z: 9)
+
+            case "AXSplitGroup":
+                // Only draw label, not a box — SplitGroup is a logical container
+                break
+
+            case "AXScrollArea":
+                if cx2 - cx1 > 6, cy2 - cy1 > 2 {
+                    canvas.drawBox(cx1, cy1, cx2, cy2, z: 4)
+                    let tag = " [\(elem.id)] "
+                    canvas.putText(cx1 + 1, cy1, String(tag.prefix(cx2 - cx1 - 1)), z: 5)
+                }
+
+            case "AXOutline", "AXList":
+                if cx2 - cx1 > 6, cy2 - cy1 > 2 {
+                    canvas.drawBox(cx1, cy1, cx2, cy2, z: 5)
+                    let tag = " [\(elem.id)] "
+                    canvas.putText(cx1 + 1, cy1, String(tag.prefix(cx2 - cx1 - 1)), z: 6)
+                }
+
+            case "AXScrollBar":
+                for y in cy1 ... min(cy2, canvasHeight - 1) {
+                    canvas.put(cx1, y, "▒", z: 6)
+                }
+
+            case "AXValueIndicator":
+                for y in cy1 ... min(cy2, canvasHeight - 1) {
+                    canvas.put(cx1, y, "█", z: 7)
+                }
+
+            case "AXMenu":
+                // Menu bar items — render compactly with spacing
+                let tag = " \(elem.label)[\(elem.id)]"
+                let (mx, my) = toCanvas(f.x, menuBarHeight / 2)
+                canvas.putText(mx, my, String(tag.prefix(20)), z: 5)
+
+            case "AXButton":
+                guard elem.isActionable else { break }
+                let shortLabel = String(elem.label.prefix(6))
+                let tag = shortLabel.isEmpty ? "[\(elem.id)]" : "[\(elem.id)|\(shortLabel)]"
+                let (mx, my) = toCanvas(f.x, f.y + f.h / 2)
+                canvas.putText(mx, my, String(tag.prefix(max(cx2 - cx1 + 4, tag.count))), z: 8)
+
+            case "AXRadioButton":
+                guard elem.isActionable else { break }
+                let tag = "(\(elem.id))"
+                let (mx, my) = toCanvas(f.x, f.y + f.h / 2)
+                canvas.putText(mx, my, String(tag.prefix(20)), z: 8)
+
+            case "AXStaticText":
+                guard !elem.label.isEmpty else { break }
+                let tag = "\(String(elem.label.prefix(14))) [\(elem.id)]"
+                let (tx, ty) = toCanvas(f.x, f.y)
+                canvas.putText(tx, ty, String(tag.prefix(max(cx2 - tx + 2, 10))), z: 6)
+
+            case "AXTextArea":
+                if cx2 - cx1 > 6, cy2 - cy1 > 2 {
+                    canvas.drawBox(cx1, cy1, cx2, cy2, z: 4)
+                    let tag = " [\(elem.id)] TextArea "
+                    canvas.putText(cx1 + 1, cy1, String(tag.prefix(cx2 - cx1 - 1)), z: 5)
+                }
+
+            case "AXImage":
+                let tag = "[\(elem.id)]"
+                let (ix, iy) = toCanvas(f.x, f.y)
+                if cx2 - cx1 >= tag.count {
+                    canvas.putText(ix, iy, tag, z: 6)
+                }
+
+            case "AXMenuButton":
+                let tag = "[\(elem.id)|v]"
+                let (mx, my) = toCanvas(f.x, f.y + f.h / 2)
+                canvas.putText(mx, my, String(tag.prefix(20)), z: 8)
+
+            case "AXSlider":
+                let (slx, sly) = toCanvas(f.x, f.y + f.h / 2)
+                let tag = "[\(elem.id)|===]"
+                canvas.putText(slx, sly, String(tag.prefix(cx2 - cx1 + 2)), z: 8)
+
+            default:
+                if elem.isActionable || elem.area > 1000 {
+                    let tag = "[\(elem.id)]"
+                    let (gx, gy) = toCanvas(f.x, f.y)
+                    canvas.putText(gx, gy, String(tag.prefix(cx2 - cx1 + 2)), z: 5)
+                }
+            }
+        }
+
+        // Build header
+        let appName = json["applicationName"] as? String ?? "?"
+        let windowTitle = json["windowTitle"] as? String ?? ""
+        let header = "\(appName) \"\(windowTitle)\" (\(Int(winW))x\(Int(winH)))"
+
+        return header + "\n" + canvas.render()
     }
 
     private func outputJSONResults(context: SeeCommandRenderContext) async {
@@ -942,6 +1242,7 @@ extension SeeCommand: CommanderBindableCommand {
         self.noWebFocus = values.flag("noWebFocus")
         self.menubar = values.flag("menubar")
         self.fullUiTree = values.flag("fullUiTree")
+        self.wireframe = values.flag("wireframe")
     }
 }
 

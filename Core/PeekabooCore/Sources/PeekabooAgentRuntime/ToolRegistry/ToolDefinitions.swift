@@ -53,6 +53,11 @@ public enum VisionToolDefinitions {
                 type: .boolean,
                 description: "Output the full UI tree (raw snapshot.json) to stdout",
                 required: false),
+            ParameterDefinition(
+                name: "wireframe",
+                type: .boolean,
+                description: "Append an ASCII wireframe with element IDs (implies fullUiTree)",
+                required: false),
         ],
         examples: [],
         agentGuidance: "")

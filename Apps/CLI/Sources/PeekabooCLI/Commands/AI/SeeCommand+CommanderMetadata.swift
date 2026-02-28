@@ -77,6 +77,11 @@ extension SeeCommand: CommanderSignatureProviding {
                     help: "Output the full UI tree (raw snapshot.json) to stdout",
                     long: "full-ui-tree"
                 ),
+                .commandFlag(
+                    "wireframe",
+                    help: "Append an ASCII wireframe with element IDs (implies --full-ui-tree)",
+                    long: "wireframe"
+                ),
             ]
         )
     }
