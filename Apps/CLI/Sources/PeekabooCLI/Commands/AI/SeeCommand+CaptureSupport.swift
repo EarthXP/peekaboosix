@@ -89,12 +89,20 @@ extension SeeCommand {
             throw CaptureError.fileIOError("Failed to load image from \(originalPath)")
         }
 
-        let imageSize = nsImage.size
+        let imageSize = nsImage.size // Size in points (e.g. 1920x1080 on Retina 2x)
+
+        // Use actual pixel dimensions so annotations render at full resolution.
+        // NSImage.size returns points; on Retina 2x a 3840x2160 PNG reports 1920x1080 points.
+        // Creating the bitmap at point dimensions would downscale the image and produce
+        // nearly invisible annotations when compared with the full-resolution raw screenshot.
+        let pixelWidth = nsImage.representations.first?.pixelsWide ?? Int(imageSize.width)
+        let pixelHeight = nsImage.representations.first?.pixelsHigh ?? Int(imageSize.height)
+        let scaleFactor = CGFloat(pixelWidth) / imageSize.width
 
         guard let bitmapRep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
-            pixelsWide: Int(imageSize.width),
-            pixelsHigh: Int(imageSize.height),
+            pixelsWide: pixelWidth,
+            pixelsHigh: pixelHeight,
             bitsPerSample: 8,
             samplesPerPixel: 4,
             hasAlpha: true,
@@ -107,16 +115,23 @@ extension SeeCommand {
             throw CaptureError.captureFailure("Failed to create bitmap representation")
         }
 
+        // Set point size so the graphics context maps points → pixels at the correct scale.
+        // This gives the context an implicit scaling transform (e.g. 2x on Retina),
+        // so all drawing coordinates stay in points while rendering at full pixel resolution.
+        bitmapRep.size = imageSize
+
         NSGraphicsContext.saveGraphicsState()
         guard let context = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
             self.logger.error("Failed to create graphics context")
             throw CaptureError.captureFailure("Failed to create graphics context")
         }
         NSGraphicsContext.current = context
-        self.logger.verbose("Graphics context created successfully")
+        self.logger.verbose(
+            "Graphics context created: \(pixelWidth)x\(pixelHeight) pixels, scale \(scaleFactor)x"
+        )
 
         nsImage.draw(in: NSRect(origin: .zero, size: imageSize))
-        self.logger.verbose("Original image drawn")
+        self.logger.verbose("Original image drawn at full resolution")
 
         let fontSize: CGFloat = 8
         let textAttributes: [NSAttributedString.Key: Any] = [
@@ -146,12 +161,20 @@ extension SeeCommand {
         )
         self.logger.verbose("Image size: \(imageSize)")
 
+        // Compute window origin from enabled elements, excluding those with extreme
+        // dimensions (e.g. terminal scrollback buffers whose AX bounds span thousands
+        // of points, pulling the origin far off-screen).
         var windowOrigin = CGPoint.zero
-        if !detectionResult.elements.all.isEmpty {
-            let minX = detectionResult.elements.all.map(\.bounds.minX).min() ?? 0
-            let minY = detectionResult.elements.all.map(\.bounds.minY).min() ?? 0
+        if !enabledElements.isEmpty {
+            let reasonableElements = enabledElements.filter { element in
+                element.bounds.height <= imageSize.height * 2 &&
+                    element.bounds.width <= imageSize.width * 2
+            }
+            let originElements = reasonableElements.isEmpty ? enabledElements : reasonableElements
+            let minX = originElements.map(\.bounds.minX).min() ?? 0
+            let minY = originElements.map(\.bounds.minY).min() ?? 0
             windowOrigin = CGPoint(x: minX, y: minY)
-            self.logger.verbose("Estimated window origin from elements: \(windowOrigin)")
+            self.logger.verbose("Estimated window origin: \(windowOrigin)")
         }
 
         var elementRects: [(element: DetectedElement, rect: NSRect)] = []
@@ -219,8 +242,19 @@ extension SeeCommand {
                 continue
             }
 
-            labelPositions.append((rect: placement.labelRect, connection: placement.connectionPoint, element: element))
-            placedLabels.append((rect: placement.labelRect, element: element))
+            // Clamp label to stay within image bounds
+            var clampedRect = placement.labelRect
+            if clampedRect.minX < 0 { clampedRect.origin.x = 0 }
+            if clampedRect.minY < 0 { clampedRect.origin.y = 0 }
+            if clampedRect.maxX > imageSize.width {
+                clampedRect.origin.x = imageSize.width - clampedRect.width
+            }
+            if clampedRect.maxY > imageSize.height {
+                clampedRect.origin.y = imageSize.height - clampedRect.height
+            }
+
+            labelPositions.append((rect: clampedRect, connection: placement.connectionPoint, element: element))
+            placedLabels.append((rect: clampedRect, element: element))
 
             if let connectionPoint = placement.connectionPoint {
                 let linePath = NSBezierPath()

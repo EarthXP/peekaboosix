@@ -341,13 +341,14 @@ final class SmartLabelPlacer {
         allowBoundaryOverflow: Bool = false,
         logRejections: Bool = false
     ) -> [(rect: NSRect, index: Int, type: PositionType)] {
-        candidates.filter { candidate in
-            // Check if within image bounds (with optional relaxation)
+        let imageBounds = NSRect(origin: .zero, size: self.imageSize)
+        return candidates.filter { candidate in
+            // Check if within image bounds
             if !allowBoundaryOverflow {
-                let withinBounds = candidate.rect.minX >= -5 && // Allow slight overflow on edges
-                    candidate.rect.maxX <= self.imageSize.width + 5 &&
-                    candidate.rect.minY >= -5 &&
-                    candidate.rect.maxY <= self.imageSize.height + 5
+                let withinBounds = candidate.rect.minX >= 0 &&
+                    candidate.rect.maxX <= self.imageSize.width &&
+                    candidate.rect.minY >= 0 &&
+                    candidate.rect.maxY <= self.imageSize.height
 
                 if !withinBounds {
                     if logRejections {
@@ -358,6 +359,17 @@ final class SmartLabelPlacer {
                                 "rect": "\(candidate.rect)",
                                 "imageBounds": "0,0 \(self.imageSize.width)x\(self.imageSize.height)"
                             ]
+                        )
+                    }
+                    return false
+                }
+            } else {
+                // Relaxed mode: label must still intersect with image bounds
+                if !candidate.rect.intersects(imageBounds) {
+                    if logRejections {
+                        self.logger.verbose(
+                            "Position \(candidate.type) rejected: fully outside image bounds",
+                            category: "LabelPlacement"
                         )
                     }
                     return false
