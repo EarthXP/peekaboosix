@@ -549,7 +549,7 @@ extension SeeCommand {
             + "/\(context.snapshotId)/snapshot.json"
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: snapshotJsonPath))
-            let optimized = Self.optimizeForAgent(from: data)
+            let optimized = Self.optimizeForAgent(from: data, snapshotId: context.snapshotId)
             if let jsonString = String(data: optimized, encoding: .utf8) {
                 print(jsonString)
                 if includeWireframe {
@@ -579,11 +579,16 @@ extension SeeCommand {
     /// - Remove redundant text fields (label, description, value, roleDescription) absorbed by `displayText`
     /// - Keep `help` only when it carries unique info beyond `displayText`
     /// - Convert frame from [[x,y],[w,h]] to {x,y,w,h}
-    private static func optimizeForAgent(from data: Data) -> Data {
+    private static func optimizeForAgent(from data: Data, snapshotId: String? = nil) -> Data {
         guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let uiMap = json["uiMap"] as? [String: Any]
         else {
             return data
+        }
+
+        // Inject snapshotId so agents can pass it to click/type/scroll --snapshot
+        if let snapshotId {
+            json["snapshotId"] = snapshotId
         }
 
         var optimized: [String: Any] = [:]
