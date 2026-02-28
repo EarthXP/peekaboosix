@@ -111,6 +111,75 @@ Set providers via `PEEKABOO_AI_PROVIDERS` or `peekaboo config add`.
 - Agent chat loop: [docs/agent-chat.md](docs/agent-chat.md)
 - Service API reference: [docs/service-api-reference.md](docs/service-api-reference.md)
 
+## Fork: peekaboosix
+
+This fork ([EarthXP/peekaboosix](https://github.com/EarthXP/peekaboosix)) adds `--full-ui-tree` and `--wireframe` to the `see` command, making the raw UI element data directly available for agent/LLM consumption.
+
+### New flags
+
+```bash
+# Output the full UI tree as optimized JSON
+peekaboo see --full-ui-tree
+
+# Output JSON + ASCII wireframe with element IDs
+peekaboo see --wireframe
+
+# Target a specific app
+peekaboo see --app Finder --wireframe
+```
+
+### What `--full-ui-tree` does
+
+Outputs the raw `snapshot.json` to stdout with agent-oriented optimizations:
+- Preserves original AX roles (fixes AXUnknown that affected 95% of elements)
+- Preserves parent-child hierarchy (`parentId` / `children` fields)
+- Removes unused `elementId` field (only `id` aka `elem_N` is kept — the key used by click/scroll/type)
+- Filters out zero-size invisible elements (e.g. closed menu items)
+- Converts frame format from `[[x,y],[w,h]]` to `{x,y,w,h}`
+- Deduplicates `title`/`label` when identical
+- Truncates long strings (>200 chars)
+- Result: ~99% token reduction (847KB → 8.9KB in a typical Terminal window)
+
+### What `--wireframe` does
+
+Appends an ASCII wireframe diagram after the JSON output. The wireframe maps element coordinates to terminal characters, showing spatial layout with element IDs:
+
+```
+---WIREFRAME---
+访达 "tmp" (920x635)
+┏ [elem_0] tmp ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ [elem_158] Toolbar                                               ┃
+┃──────────────────────────────────────────────────────────────────┃
+┃│ 最近使用           ▒█ ││ [elem_121]  [elem_123]  [elem_125]  │  ┃
+┃│ 个人收藏 [elem_14]  ▒█ ││                                     │  ┃
+┃│ 应用程序 [elem_17]  ▒█ ││ [elem_133]  [elem_135]  [elem_137] │  ┃
+┃│ 桌面 [elem_21]     ▒█ ││                                     │  ┃
+┃│ 文稿 [elem_25]     ▒█ │└─────────────────────────────────────┘  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+Agents can read the wireframe to understand UI layout, then use the `[elem_N]` IDs directly in `click`, `scroll`, or `type` commands.
+
+### Commits in this fork
+
+| Commit | Description |
+|--------|-------------|
+| `905f1d07` | `feat(cli):` add `--full-ui-tree` flag to see command |
+| `851ddbf5` | `fix(cli):` strip unused elementId from output |
+| `b278758c` | `fix:` preserve AX role and hierarchy in snapshot data |
+| `f53de239` | `fix(cli):` optimize output for agent consumption (99% token reduction) |
+| `1f6cb4f1` | `feat(cli):` add `--wireframe` flag for ASCII UI layout with element IDs |
+
+### Files modified
+
+- `Apps/CLI/Sources/PeekabooCLI/Commands/AI/SeeCommand.swift` — flag definitions, output logic, wireframe renderer
+- `Apps/CLI/Sources/PeekabooCLI/Commands/AI/SeeCommand+CommanderMetadata.swift` — Commander flag bindings
+- `Core/PeekabooCore/Sources/PeekabooAgentRuntime/ToolRegistry/ToolDefinitions.swift` — MCP parameter registration
+- `Core/PeekabooAutomationKit/.../UIAutomationServiceProtocol.swift` — `parentId` field on `DetectedElement`
+- `Core/PeekabooAutomationKit/.../ElementDetectionService.swift` — pass parentId through recursion
+- `Core/PeekabooAutomationKit/.../SnapshotManager.swift` — use original AX role, build hierarchy
+- `Core/PeekabooAutomationKit/.../InMemorySnapshotManager.swift` — same as SnapshotManager
+
 ## Development basics
 - Requirements: macOS 15+, Xcode 16+/Swift 6.2. Node 22+ only if you run the pnpm docs/build helper scripts (core CLI/app/MCP are Swift-only).
 - Install deps: `pnpm install` then `pnpm run build:cli` or `pnpm run test:safe`.
