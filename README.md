@@ -169,6 +169,7 @@ Agents can read the wireframe to understand UI layout, then use the `[elem_N]` I
 | `b278758c` | `fix:` preserve AX role and hierarchy in snapshot data |
 | `f53de239` | `fix(cli):` optimize output for agent consumption (99% token reduction) |
 | `1f6cb4f1` | `feat(cli):` add `--wireframe` flag for ASCII UI layout with element IDs |
+| `034ca943` | `fix(cli):` pass description/help/roleDescription to snapshot; smart label fallback in wireframe |
 
 ### Files modified
 
