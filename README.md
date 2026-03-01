@@ -136,6 +136,7 @@ Upgrade: `brew upgrade earthxp/tap/peekaboo`
 - `see --full-ui-tree` — optimized JSON UI tree for agent consumption (~99% token reduction)
 - `see --wireframe` — ASCII spatial layout with element IDs (zero image tokens)
 - `see` unified `displayText` field — smart label fallback with dedup (−30% output)
+- `see --full-ui-tree/--wireframe` includes `snapshotId` in output for snapshot tracking
 - `click --ax-press` flag — opt-in AXPress for system sheet dialogs; default click uses CGEvent (correct responder chain)
 
 **Bug Fixes**
