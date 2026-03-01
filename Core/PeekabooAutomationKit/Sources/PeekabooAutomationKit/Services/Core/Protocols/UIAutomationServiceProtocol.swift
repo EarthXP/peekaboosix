@@ -19,7 +19,7 @@ public protocol UIAutomationServiceProtocol: Sendable {
     ///   - target: Click target (element ID, coordinates, or query)
     ///   - clickType: Type of click (single, double, right)
     ///   - snapshotId: Snapshot ID for element resolution
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, useAXPress: Bool) async throws
 
     /// Type text at current focus or specific element
     /// - Parameters:

@@ -309,10 +309,11 @@ enum AutomationServiceBridge {
         automation: any UIAutomationServiceProtocol,
         target: ClickTarget,
         clickType: ClickType,
-        snapshotId: String?
+        snapshotId: String?,
+        useAXPress: Bool = false
     ) async throws {
         try await Task { @MainActor in
-            try await automation.click(target: target, clickType: clickType, snapshotId: snapshotId)
+            try await automation.click(target: target, clickType: clickType, snapshotId: snapshotId, useAXPress: useAXPress)
         }.value
     }
 

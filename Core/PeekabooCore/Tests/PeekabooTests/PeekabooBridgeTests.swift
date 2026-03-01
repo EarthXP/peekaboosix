@@ -469,7 +469,7 @@ private final class StubAutomationService: UIAutomationServiceProtocol {
                 isDialog: false))
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId _: String?) async throws {
+    func click(target: ClickTarget, clickType: ClickType, snapshotId _: String?, useAXPress: Bool = false) async throws {
         self.lastClick = Click(target: target, type: clickType)
     }
 

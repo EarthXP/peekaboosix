@@ -198,7 +198,7 @@ final class StubAutomationService: UIAutomationServiceProtocol {
         throw TestStubError.unimplemented(#function)
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, useAXPress: Bool = false) async throws {
         self.clickCalls.append(ClickCall(target: target, clickType: clickType, snapshotId: snapshotId))
     }
 

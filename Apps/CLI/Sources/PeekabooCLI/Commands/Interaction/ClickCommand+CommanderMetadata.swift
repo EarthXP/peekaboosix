@@ -48,6 +48,11 @@ extension ClickCommand: CommanderSignatureProviding {
                     help: "Right-click (secondary click)",
                     long: "right"
                 ),
+                .commandFlag(
+                    "ax-press",
+                    help: "Use AXPress instead of CGEvent click (no focus needed, works on system sheets)",
+                    long: "ax-press"
+                ),
             ],
             optionGroups: [
                 InteractionTargetOptions.commanderSignature(),

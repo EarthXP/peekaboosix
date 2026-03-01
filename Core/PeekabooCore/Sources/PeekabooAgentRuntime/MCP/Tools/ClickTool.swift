@@ -128,7 +128,8 @@ public struct ClickTool: MCPTool {
         try await self.context.automation.click(
             target: .coordinates(location),
             clickType: intent.automationType,
-            snapshotId: snapshotId)
+            snapshotId: snapshotId,
+            useAXPress: false)
     }
 
     private func buildResponse(

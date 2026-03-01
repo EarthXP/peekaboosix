@@ -556,7 +556,7 @@ extension PeekabooServices {
     private func performAutomationAction(_ action: AutomationAction, snapshotId: String) async throws {
         switch action {
         case let .click(target, clickType):
-            try await self.automation.click(target: target, clickType: clickType, snapshotId: snapshotId)
+            try await self.automation.click(target: target, clickType: clickType, snapshotId: snapshotId, useAXPress: false)
         case let .type(text, target, clear):
             try await self.automation.type(
                 text: text,

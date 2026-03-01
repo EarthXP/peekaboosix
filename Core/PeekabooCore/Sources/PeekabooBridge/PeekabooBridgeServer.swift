@@ -195,7 +195,8 @@ public final class PeekabooBridgeServer {
                 try await self.services.automation.click(
                     target: payload.target,
                     clickType: payload.clickType,
-                    snapshotId: payload.snapshotId)
+                    snapshotId: payload.snapshotId,
+                    useAXPress: false)
                 return .ok
 
             case let .type(payload):

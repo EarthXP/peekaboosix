@@ -50,13 +50,13 @@ public final class ClickService {
 
     /// Perform a click operation
     @MainActor
-    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
-        self.logger.debug("Click requested - target: \(String(describing: target)), type: \(clickType)")
+    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, useAXPress: Bool = false) async throws {
+        self.logger.debug("Click requested - target: \(String(describing: target)), type: \(clickType), useAXPress: \(useAXPress)")
 
         do {
             switch target {
             case let .elementId(id):
-                try await self.clickElementById(id: id, clickType: clickType, snapshotId: snapshotId)
+                try await self.clickElementById(id: id, clickType: clickType, snapshotId: snapshotId, useAXPress: useAXPress)
 
             case let .coordinates(point):
                 try await self.performClick(at: point, clickType: clickType)
@@ -72,24 +72,26 @@ public final class ClickService {
 
     // MARK: - Private Methods
 
-    private func clickElementById(id: String, clickType: ClickType, snapshotId: String?) async throws {
+    private func clickElementById(id: String, clickType: ClickType, snapshotId: String?, useAXPress: Bool = false) async throws {
         // Get element from snapshot
         if let snapshotId,
            let detectionResult = try? await snapshotManager.getDetectionResult(snapshotId: snapshotId),
            let element = detectionResult.elements.findById(id)
         {
-            // For single clicks on actionable elements, try AXPress first.
-            // AXPress works through the Accessibility API without requiring window focus,
-            // which is essential for system modal sheets (Print, Save As) that don't
-            // respond to synthetic CGEvent mouse clicks.
-            if clickType == .single,
+            // When --ax-press is requested, use AXPress (Accessibility API) instead of CGEvent.
+            // AXPress works without requiring window focus, which is essential for
+            // system modal sheets (Print, Save As) that don't respond to synthetic
+            // CGEvent mouse clicks. However, AXPress does NOT update the responder
+            // chain focus, so subsequent text input may go to the wrong field.
+            // Therefore it is opt-in only via --ax-press flag.
+            if useAXPress, clickType == .single,
                try await self.tryAXPress(element: element, snapshotId: snapshotId)
             {
                 self.logger.debug("Clicked element \(id) via AXPress")
                 return
             }
 
-            // Fall back to coordinate-based CGEvent click
+            // Default: coordinate-based CGEvent click (updates responder chain correctly)
             let center = CGPoint(x: element.bounds.midX, y: element.bounds.midY)
             let adjusted = try await self.resolveAdjustedPoint(center, snapshotId: snapshotId)
             try await self.performClick(at: adjusted, clickType: clickType)

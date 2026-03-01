@@ -112,7 +112,7 @@ final class MockAutomationService: UIAutomationServiceProtocol {
         throw PeekabooError.notImplemented("mock detectElements")
     }
 
-    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
+    func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, useAXPress: Bool = false) async throws {
         self.clickCalls.append(.init(target: target, clickType: clickType, snapshotId: snapshotId))
     }
 

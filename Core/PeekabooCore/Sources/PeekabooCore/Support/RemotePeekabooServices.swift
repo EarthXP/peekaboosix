@@ -83,7 +83,7 @@ public final class RemoteUIAutomationService: UIAutomationServiceProtocol {
         try await self.client.detectElements(in: imageData, snapshotId: snapshotId, windowContext: windowContext)
     }
 
-    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?) async throws {
+    public func click(target: ClickTarget, clickType: ClickType, snapshotId: String?, useAXPress: Bool = false) async throws {
         try await self.client.click(target: target, clickType: clickType, snapshotId: snapshotId)
     }
 

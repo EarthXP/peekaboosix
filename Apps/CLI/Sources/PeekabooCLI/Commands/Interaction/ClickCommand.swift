@@ -35,6 +35,9 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
     @Flag(help: "Right-click (secondary click)")
     var right = false
 
+    @Flag(name: .customLong("ax-press"), help: "Use AXPress instead of CGEvent click (no focus needed, works on system sheets)")
+    var axPress = false
+
     @OptionGroup var focusOptions: FocusCommandOptions
     mutating func validate() throws {
         try self.target.validate()
@@ -126,12 +129,10 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                     nil
                 }
 
-                // Focus is best-effort for element clicks — AXPress can
-                // interact with system sheets (Print, Save As) without focus.
-                do {
-                    try await self.focusApplicationIfNeeded(snapshotId: focusSnapshotId, bestEffort: true)
-                } catch {
-                    // Continue; ClickService will try AXPress which doesn't need focus
+                if self.axPress {
+                    // AXPress doesn't need window focus — skip focus acquisition
+                } else {
+                    try await self.focusApplicationIfNeeded(snapshotId: focusSnapshotId)
                 }
 
                 // Use whichever element ID parameter was provided
@@ -193,7 +194,8 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                     automation: self.services.automation,
                     target: clickTarget,
                     clickType: clickType,
-                    snapshotId: nil
+                    snapshotId: nil,
+                    useAXPress: false
                 )
             } else {
                 // For element-based clicks, pass the snapshot ID
@@ -201,7 +203,8 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
                     automation: self.services.automation,
                     target: clickTarget,
                     clickType: clickType,
-                    snapshotId: activeSnapshotId.isEmpty ? nil : activeSnapshotId
+                    snapshotId: activeSnapshotId.isEmpty ? nil : activeSnapshotId,
+                    useAXPress: self.axPress
                 )
             }
 
@@ -277,7 +280,7 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
         return "\(roleDescription): \(label)"
     }
 
-    private func focusApplicationIfNeeded(snapshotId: String?, bestEffort: Bool = false) async throws {
+    private func focusApplicationIfNeeded(snapshotId: String?) async throws {
         guard self.focusOptions.autoFocus else {
             return
         }
@@ -286,16 +289,10 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
             return
         }
 
-        let options: any FocusOptionsProtocol = if bestEffort {
-            QuickFocusOptions(base: self.focusOptions)
-        } else {
-            self.focusOptions
-        }
-
         try await ensureFocused(
             snapshotId: snapshotId,
             target: self.target,
-            options: options,
+            options: self.focusOptions,
             services: self.services
         )
 
@@ -304,22 +301,6 @@ struct ClickCommand: ErrorHandlingCommand, OutputFormattable {
     }
 
     // Error handling is provided by ErrorHandlingCommand protocol
-}
-
-/// Quick-fail focus options for element clicks where AXPress can work without focus.
-/// Uses 2s timeout and 1 attempt to avoid blocking on system sheets.
-private struct QuickFocusOptions: FocusOptionsProtocol {
-    let autoFocus: Bool = true
-    let focusTimeout: TimeInterval?
-    let focusRetryCount: Int? = 1
-    let spaceSwitch: Bool
-    let bringToCurrentSpace: Bool
-
-    init(base: FocusCommandOptions) {
-        self.focusTimeout = min(base.focusTimeout ?? 5.0, 2.0)
-        self.spaceSwitch = base.spaceSwitch
-        self.bringToCurrentSpace = base.bringToCurrentSpace
-    }
 }
 
 @MainActor
@@ -336,6 +317,7 @@ extension ClickCommand: CommanderBindableCommand {
         }
         self.double = values.flag("double")
         self.right = values.flag("right")
+        self.axPress = values.flag("ax-press")
         self.focusOptions = try values.makeFocusOptions()
     }
 }

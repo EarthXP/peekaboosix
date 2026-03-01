@@ -165,7 +165,8 @@ public struct TypeTool: MCPTool {
         try await automation.click(
             target: .coordinates(clickLocation),
             clickType: .single,
-            snapshotId: request.snapshotId)
+            snapshotId: request.snapshotId,
+            useAXPress: false)
         try await Task.sleep(nanoseconds: 100_000_000)
     }
 
