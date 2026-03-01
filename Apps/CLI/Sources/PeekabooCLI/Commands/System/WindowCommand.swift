@@ -598,7 +598,6 @@ extension WindowCommand {
 
             do {
                 try self.windowOptions.validate()
-                let target = self.windowOptions.createTarget()
                 let appInfo = try await self.windowOptions.resolveApplicationInfo(services: self.services)
                 let appName = appInfo.name
 
@@ -612,9 +611,10 @@ extension WindowCommand {
                     throw PeekabooError.windowNotFound(criteria: "No windows found for \(appName)")
                 }
 
-                // Move the window
+                // Move the window (use windowID to avoid service-layer re-resolution picking the wrong window)
                 let newOrigin = CGPoint(x: x, y: y)
-                try await WindowServiceBridge.moveWindow(windows: self.services.windows, target: target, to: newOrigin)
+                let moveTarget: WindowTarget = .windowId(windowInfo!.windowID)
+                try await WindowServiceBridge.moveWindow(windows: self.services.windows, target: moveTarget, to: newOrigin)
 
                 // Brief delay to let macOS update window geometry before verification
                 try await Task.sleep(nanoseconds: 100_000_000)
@@ -720,7 +720,6 @@ extension WindowCommand {
 
             do {
                 try self.windowOptions.validate()
-                let target = self.windowOptions.createTarget()
                 let appInfo = try await self.windowOptions.resolveApplicationInfo(services: self.services)
                 let appName = appInfo.name
 
@@ -734,9 +733,10 @@ extension WindowCommand {
                     throw PeekabooError.windowNotFound(criteria: "No windows found for \(appName)")
                 }
 
-                // Resize the window
+                // Resize the window (use windowID to avoid service-layer re-resolution picking the wrong window)
                 let newSize = CGSize(width: width, height: height)
-                try await WindowServiceBridge.resizeWindow(windows: self.services.windows, target: target, to: newSize)
+                let resizeTarget: WindowTarget = .windowId(windowInfo!.windowID)
+                try await WindowServiceBridge.resizeWindow(windows: self.services.windows, target: resizeTarget, to: newSize)
 
                 // Brief delay to let macOS update window geometry before verification
                 try await Task.sleep(nanoseconds: 100_000_000)
@@ -836,7 +836,6 @@ extension WindowCommand {
 
             do {
                 try self.windowOptions.validate()
-                let target = self.windowOptions.createTarget()
                 let appInfo = try await self.windowOptions.resolveApplicationInfo(services: self.services)
                 let appName = appInfo.name
 
@@ -850,11 +849,12 @@ extension WindowCommand {
                     throw PeekabooError.windowNotFound(criteria: "No windows found for \(appName)")
                 }
 
-                // Set bounds
+                // Set bounds (use windowID to avoid service-layer re-resolution picking the wrong window)
                 let newBounds = CGRect(x: x, y: y, width: width, height: height)
+                let boundsTarget: WindowTarget = .windowId(windowInfo!.windowID)
                 try await WindowServiceBridge.setWindowBounds(
                     windows: self.services.windows,
-                    target: target,
+                    target: boundsTarget,
                     bounds: newBounds
                 )
 
