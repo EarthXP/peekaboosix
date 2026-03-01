@@ -113,36 +113,48 @@ Set providers via `PEEKABOO_AI_PROVIDERS` or `peekaboo config add`.
 
 ## Fork: peekaboosix
 
-This fork ([EarthXP/peekaboosix](https://github.com/EarthXP/peekaboosix)) adds `--full-ui-tree` and `--wireframe` to the `see` command, making the raw UI element data directly available for agent/LLM consumption.
+This fork ([EarthXP/peekaboosix](https://github.com/EarthXP/peekaboosix)) extends Peekaboo with agent-oriented features and bug fixes for desktop automation.
 
-### New flags
+**Current version:** `3.0.0-earthxp.1` (upstream: `3.0.0-beta3`)
+
+### Install
 
 ```bash
-# Output the full UI tree as optimized JSON
-peekaboo see --full-ui-tree
+# Homebrew (recommended)
+brew tap earthxp/tap
+brew install earthxp/tap/peekaboo
 
-# Output JSON + ASCII wireframe with element IDs
-peekaboo see --wireframe
-
-# Target a specific app
-peekaboo see --app Finder --wireframe
+# Or direct download (arm64 Apple Silicon)
+curl -L https://github.com/EarthXP/peekaboosix/releases/download/v3.0.0-earthxp.1/peekaboo-arm64-macos.tar.gz | tar xz -C /opt/homebrew/bin
 ```
 
-### What `--full-ui-tree` does
+Upgrade: `brew upgrade earthxp/tap/peekaboo`
 
-Outputs the raw `snapshot.json` to stdout with agent-oriented optimizations:
-- Preserves original AX roles (fixes AXUnknown that affected 95% of elements)
-- Preserves parent-child hierarchy (`parentId` / `children` fields)
-- Removes unused `elementId` field (only `id` aka `elem_N` is kept — the key used by click/scroll/type)
-- Filters out zero-size invisible elements (e.g. closed menu items)
-- Converts frame format from `[[x,y],[w,h]]` to `{x,y,w,h}`
-- Deduplicates `title`/`label` when identical
+### What's changed
+
+**Features**
+- `see --full-ui-tree` — optimized JSON UI tree for agent consumption (~99% token reduction)
+- `see --wireframe` — ASCII spatial layout with element IDs (zero image tokens)
+- `see` unified `displayText` field — smart label fallback with dedup (−30% output)
+- `click --ax-press` flag — opt-in AXPress for system sheet dialogs; default click uses CGEvent (correct responder chain)
+
+**Bug Fixes**
+- `window move/resize/set-bounds` — use CGWindowID to target the correct window (previously could operate on invisible popup windows like Outlook reminders instead of the main window)
+- `window move/resize/set-bounds` — verify actual bounds after operation; report `success: false` when macOS silently ignores (tiled/fullscreen windows)
+- AXorcist `setFrame`/`setWindowBounds` — return actual AXError status instead of hardcoded `true`
+- Fix annotation rendering on Retina displays, label overflow, and window origin calculation
+- Fix Print/Save sheet timeout with escapable timeouts and sheet window resolution
+
+### `--full-ui-tree` output
+
+Optimized `snapshot.json` with agent-oriented transforms:
+- Preserves original AX roles and parent-child hierarchy (`parentId` / `children`)
+- Filters zero-size invisible elements; converts frame to `{x,y,w,h}`
+- Unifies text into single `displayText` field with dedup
 - Truncates long strings (>200 chars)
-- Result: ~99% token reduction (847KB → 8.9KB in a typical Terminal window)
+- Result: 847KB → 8.9KB typical
 
-### What `--wireframe` does
-
-Appends an ASCII wireframe diagram after the JSON output. The wireframe maps element coordinates to terminal characters, showing spatial layout with element IDs:
+### `--wireframe` output
 
 ```
 ---WIREFRAME---
@@ -157,30 +169,6 @@ Appends an ASCII wireframe diagram after the JSON output. The wireframe maps ele
 ┃│ 文稿 [elem_25]     ▒█ │└─────────────────────────────────────┘  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
-
-Agents can read the wireframe to understand UI layout, then use the `[elem_N]` IDs directly in `click`, `scroll`, or `type` commands.
-
-### Commits in this fork
-
-| Commit | Description |
-|--------|-------------|
-| `905f1d07` | `feat(cli):` add `--full-ui-tree` flag to see command |
-| `851ddbf5` | `fix(cli):` strip unused elementId from output |
-| `b278758c` | `fix:` preserve AX role and hierarchy in snapshot data |
-| `f53de239` | `fix(cli):` optimize output for agent consumption (99% token reduction) |
-| `1f6cb4f1` | `feat(cli):` add `--wireframe` flag for ASCII UI layout with element IDs |
-| `034ca943` | `fix(cli):` pass description/help/roleDescription to snapshot; smart label fallback in wireframe |
-| `6b8920da` | `refactor(cli):` unify text fields into `displayText` with dedup (−30% output size) |
-
-### Files modified
-
-- `Apps/CLI/Sources/PeekabooCLI/Commands/AI/SeeCommand.swift` — flag definitions, output logic, wireframe renderer
-- `Apps/CLI/Sources/PeekabooCLI/Commands/AI/SeeCommand+CommanderMetadata.swift` — Commander flag bindings
-- `Core/PeekabooCore/Sources/PeekabooAgentRuntime/ToolRegistry/ToolDefinitions.swift` — MCP parameter registration
-- `Core/PeekabooAutomationKit/.../UIAutomationServiceProtocol.swift` — `parentId` field on `DetectedElement`
-- `Core/PeekabooAutomationKit/.../ElementDetectionService.swift` — pass parentId through recursion
-- `Core/PeekabooAutomationKit/.../SnapshotManager.swift` — use original AX role, build hierarchy
-- `Core/PeekabooAutomationKit/.../InMemorySnapshotManager.swift` — same as SnapshotManager
 
 ## Development basics
 - Requirements: macOS 15+, Xcode 16+/Swift 6.2. Node 22+ only if you run the pnpm docs/build helper scripts (core CLI/app/MCP are Swift-only).
