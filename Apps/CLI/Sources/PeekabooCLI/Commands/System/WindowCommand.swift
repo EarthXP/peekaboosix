@@ -160,11 +160,21 @@ extension WindowIdentificationOptions {
 
 // MARK: - Helper Functions
 
+/// Compare requested bounds against actual bounds with tolerance.
+/// macOS may adjust window positions by a few pixels (edge snapping, even-pixel alignment).
+private func boundsMatch(requested: CGRect, actual: CGRect, tolerance: CGFloat = 15) -> Bool {
+    abs(requested.origin.x - actual.origin.x) <= tolerance
+        && abs(requested.origin.y - actual.origin.y) <= tolerance
+        && abs(requested.size.width - actual.size.width) <= tolerance
+        && abs(requested.size.height - actual.size.height) <= tolerance
+}
+
 private func createWindowActionResult(
     action: String,
     success: Bool,
     windowInfo: ServiceWindowInfo?,
-    appName: String? = nil
+    appName: String? = nil,
+    message: String? = nil
 ) -> WindowActionResult {
     let bounds: WindowBounds? = if let windowInfo {
         WindowBounds(
@@ -182,7 +192,8 @@ private func createWindowActionResult(
         success: success,
         app_name: appName ?? "Unknown",
         window_title: windowInfo?.title,
-        new_bounds: bounds
+        new_bounds: bounds,
+        message: message
     )
 }
 
@@ -605,6 +616,9 @@ extension WindowCommand {
                 let newOrigin = CGPoint(x: x, y: y)
                 try await WindowServiceBridge.moveWindow(windows: self.services.windows, target: target, to: newOrigin)
 
+                // Brief delay to let macOS update window geometry before verification
+                try await Task.sleep(nanoseconds: 100_000_000)
+
                 // Create result with new bounds
                 let updatedInfo = windowInfo.map { info in
                     ServiceWindowInfo(
@@ -626,6 +640,14 @@ extension WindowCommand {
                 )
                 let finalWindowInfo = refreshedWindowInfo ?? updatedInfo ?? windowInfo
 
+                // Verify actual bounds match requested
+                let requestedBounds = CGRect(origin: newOrigin, size: windowInfo!.bounds.size)
+                let actuallyMoved = if let final = finalWindowInfo {
+                    boundsMatch(requested: requestedBounds, actual: final.bounds)
+                } else {
+                    true // refetch failed — trust AX return value
+                }
+
                 logWindowAction(
                     action: "move",
                     appName: appName,
@@ -634,15 +656,28 @@ extension WindowCommand {
 
                 let data = createWindowActionResult(
                     action: "move",
-                    success: true,
+                    success: actuallyMoved,
                     windowInfo: finalWindowInfo,
-                    appName: appName
+                    appName: appName,
+                    message: actuallyMoved
+                        ? nil
+                        : "Window did not move — may be in macOS tiled/fullscreen state. Use 'peekaboo drag' to reposition."
                 )
 
                 output(data) {
-                    print(
-                        "Successfully moved window '\(finalWindowInfo?.title ?? "Untitled")' to (\(self.x), \(self.y))"
-                    )
+                    if actuallyMoved {
+                        print(
+                            "Successfully moved window '\(finalWindowInfo?.title ?? "Untitled")' to (\(self.x), \(self.y))"
+                        )
+                    } else {
+                        let b = finalWindowInfo?.bounds ?? .zero
+                        print(
+                            "Window move failed — position unchanged at (\(Int(b.origin.x)), \(Int(b.origin.y)))"
+                        )
+                        print(
+                            "Hint: Window may be in tiled/fullscreen state. Use 'peekaboo drag' to reposition."
+                        )
+                    }
                 }
 
             } catch {
@@ -703,12 +738,27 @@ extension WindowCommand {
                 let newSize = CGSize(width: width, height: height)
                 try await WindowServiceBridge.resizeWindow(windows: self.services.windows, target: target, to: newSize)
 
+                // Brief delay to let macOS update window geometry before verification
+                try await Task.sleep(nanoseconds: 100_000_000)
+
                 let refreshedWindowInfo = await self.windowOptions.refetchWindowInfo(
                     services: self.services,
                     logger: self.logger,
                     context: "window-resize"
                 )
                 let finalWindowInfo = refreshedWindowInfo ?? windowInfo
+
+                // Verify actual size matches requested
+                let requestedBounds = CGRect(
+                    origin: windowInfo!.bounds.origin,
+                    size: newSize
+                )
+                let actuallyResized = if let final = finalWindowInfo {
+                    boundsMatch(requested: requestedBounds, actual: final.bounds)
+                } else {
+                    true
+                }
+
                 logWindowAction(
                     action: "resize",
                     appName: appName,
@@ -717,14 +767,27 @@ extension WindowCommand {
 
                 let data = createWindowActionResult(
                     action: "resize",
-                    success: true,
+                    success: actuallyResized,
                     windowInfo: finalWindowInfo,
-                    appName: appName
+                    appName: appName,
+                    message: actuallyResized
+                        ? nil
+                        : "Window did not resize — may be in macOS tiled/fullscreen state. Use 'peekaboo drag' to untile first."
                 )
 
                 output(data) {
                     let title = finalWindowInfo?.title ?? "Untitled"
-                    print("Successfully resized window '\(title)' to \(self.width)x\(self.height)")
+                    if actuallyResized {
+                        print("Successfully resized window '\(title)' to \(self.width)x\(self.height)")
+                    } else {
+                        let b = finalWindowInfo?.bounds ?? .zero
+                        print(
+                            "Window resize failed — size unchanged at \(Int(b.size.width))x\(Int(b.size.height))"
+                        )
+                        print(
+                            "Hint: Window may be in tiled/fullscreen state. Use 'peekaboo drag' to untile first."
+                        )
+                    }
                 }
 
             } catch {
@@ -795,12 +858,23 @@ extension WindowCommand {
                     bounds: newBounds
                 )
 
+                // Brief delay to let macOS update window geometry before verification
+                try await Task.sleep(nanoseconds: 100_000_000)
+
                 let refreshedWindowInfo = await self.windowOptions.refetchWindowInfo(
                     services: self.services,
                     logger: self.logger,
                     context: "window-set-bounds"
                 )
                 let finalWindowInfo = refreshedWindowInfo ?? windowInfo
+
+                // Verify actual bounds match requested
+                let actuallySet = if let final = finalWindowInfo {
+                    boundsMatch(requested: newBounds, actual: final.bounds)
+                } else {
+                    true
+                }
+
                 logWindowAction(
                     action: "set-bounds",
                     appName: appName,
@@ -809,15 +883,28 @@ extension WindowCommand {
 
                 let data = createWindowActionResult(
                     action: "set-bounds",
-                    success: true,
+                    success: actuallySet,
                     windowInfo: finalWindowInfo,
-                    appName: appName
+                    appName: appName,
+                    message: actuallySet
+                        ? nil
+                        : "Window bounds did not change — may be in macOS tiled/fullscreen state. Use 'peekaboo drag' to untile first."
                 )
 
                 output(data) {
                     let title = finalWindowInfo?.title ?? "Untitled"
-                    let boundsDescription = "(\(self.x), \(self.y)) \(self.width)x\(self.height)"
-                    print("Successfully set window '\(title)' bounds to \(boundsDescription)")
+                    if actuallySet {
+                        let boundsDescription = "(\(self.x), \(self.y)) \(self.width)x\(self.height)"
+                        print("Successfully set window '\(title)' bounds to \(boundsDescription)")
+                    } else {
+                        let b = finalWindowInfo?.bounds ?? .zero
+                        print(
+                            "Window set-bounds failed — bounds unchanged at (\(Int(b.origin.x)), \(Int(b.origin.y))) \(Int(b.size.width))x\(Int(b.size.height))"
+                        )
+                        print(
+                            "Hint: Window may be in tiled/fullscreen state. Use 'peekaboo drag' to untile first."
+                        )
+                    }
                 }
 
             } catch {
@@ -973,6 +1060,7 @@ struct WindowActionResult: Codable {
     let app_name: String
     let window_title: String?
     let new_bounds: WindowBounds?
+    let message: String?
 }
 
 // Using PeekabooCore.WindowListData for consistency
